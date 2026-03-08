@@ -1,0 +1,587 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Stochastic Cubemap Global Illumination</title>
+    <style>
+        body { margin: 0; overflow: hidden; background-color: #000; font-family: sans-serif; }
+        canvas { display: block; width: 100vw; height: 100vh; }
+        #ui {
+            position: absolute; top: 10px; left: 10px; color: white;
+            background: rgba(0,0,0,0.7); padding: 15px; border-radius: 8px;
+            pointer-events: none; z-index: 100; max-width: 400px;
+        }
+        #blocker {
+            position: absolute; top: 0; left: 0; width: 100%; height: 100%;
+            background: rgba(0,0,0,0.5); display: flex; flex-direction: column;
+            align-items: center; justify-content: center; color: white;
+            cursor: pointer; z-index: 200;
+        }
+        h1 { margin: 0 0 10px 0; font-size: 20px; }
+        p { margin: 5px 0; font-size: 14px; color: #ccc; }
+    </style>
+    <!-- Use Three.js r128 -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+</head>
+<body>
+    <div id="ui">
+        <h1>Stochastic GI</h1>
+        <p>FPS: <span id="fps">0</span></p>
+        <p>Physically Correct Cosine-Weighted Raymarching.</p>
+    </div>
+    <div id="blocker">
+        <h1>Click to Start</h1>
+        <p>WASD to Move | Mouse to Look</p>
+    </div>
+
+<script>
+// --- CORE SETUP ---
+const scene = new THREE.Scene();
+const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 100);
+camera.position.set(0, -1, 3);
+
+// Enforce WebGL2 for Float Render Targets
+const renderer = new THREE.WebGLRenderer({ antialias: false, powerPreference: "high-performance" });
+renderer.setSize(window.innerWidth, window.innerHeight);
+renderer.setPixelRatio(1);
+document.body.appendChild(renderer.domElement);
+
+// --- RENDER TARGETS ---
+const CUBE_RES = 256; 
+const cubeRTParams = { format: THREE.RGBAFormat, type: THREE.FloatType, minFilter: THREE.NearestFilter, magFilter: THREE.NearestFilter, generateMipmaps: false };
+
+const cubeColorRT_A = new THREE.WebGLCubeRenderTarget(CUBE_RES, cubeRTParams);
+const cubeNormalDistRT_A = new THREE.WebGLCubeRenderTarget(CUBE_RES, cubeRTParams);
+const cubeCamColor_A = new THREE.CubeCamera(0.1, 50, cubeColorRT_A);
+const cubeCamNormalDist_A = new THREE.CubeCamera(0.1, 50, cubeNormalDistRT_A);
+
+const cubeColorRT_B = new THREE.WebGLCubeRenderTarget(CUBE_RES, cubeRTParams);
+const cubeNormalDistRT_B = new THREE.WebGLCubeRenderTarget(CUBE_RES, cubeRTParams);
+const cubeCamColor_B = new THREE.CubeCamera(0.1, 50, cubeColorRT_B);
+const cubeCamNormalDist_B = new THREE.CubeCamera(0.1, 50, cubeNormalDistRT_B);
+
+let readCubeColorRT = cubeColorRT_A;
+let readCubeNormalDistRT = cubeNormalDistRT_A;
+let writeCubeColorRT = cubeColorRT_B;
+let writeCubeNormalDistRT = cubeNormalDistRT_B;
+let writeCubeCamColor = cubeCamColor_B;
+let writeCubeCamNormalDist = cubeCamNormalDist_B;
+
+const screenRTParams = { format: THREE.RGBAFormat, type: THREE.FloatType, minFilter: THREE.NearestFilter, magFilter: THREE.NearestFilter };
+const screenColorRT = new THREE.WebGLRenderTarget(window.innerWidth, window.innerHeight, screenRTParams);
+const screenNormalDistRT = new THREE.WebGLRenderTarget(window.innerWidth, window.innerHeight, screenRTParams);
+const ssgiRT = new THREE.WebGLRenderTarget(window.innerWidth, window.innerHeight, screenRTParams);
+
+// --- SHADERS & MATERIALS ---
+const commonVert = `
+    varying vec3 vNormal;
+    varying vec3 vWorldPos;
+    void main() {
+        vec4 worldPosition = modelMatrix * vec4(position, 1.0);
+        vWorldPos = worldPosition.xyz;
+        // CRITICAL FIX: Extract pure WORLD SPACE normals! 
+        // normalMatrix outputs to View Space which breaks cubemap multi-directional lookups!
+        vNormal = normalize((modelMatrix * vec4(normal, 0.0)).xyz);
+        
+        gl_Position = projectionMatrix * viewMatrix * worldPosition;
+    }
+`;
+
+const screenColorFrag = `
+    uniform vec3 uColor;
+    uniform vec3 uEmissive;
+    void main() {
+        float isEmissive = length(uEmissive) > 0.0 ? 1.0 : 0.0;
+        vec3 finalColor = isEmissive > 0.5 ? uEmissive : uColor;
+        gl_FragColor = vec4(finalColor, isEmissive);
+    }
+`;
+
+const screenNormalFrag = `
+    varying vec3 vNormal;
+    varying vec3 vWorldPos;
+    uniform vec3 uCameraPos;
+    void main() {
+        float dist = length(vWorldPos - uCameraPos);
+        gl_FragColor = vec4(normalize(vNormal), dist);
+    }
+`;
+
+const stochasticColorFrag = `
+    uniform vec3 uColor;
+    uniform vec3 uEmissive;
+    uniform float uSeed;
+    
+    uniform samplerCube tCubeColorRead;
+    uniform samplerCube tCubeNormalDistRead;
+    uniform vec3 uCameraPos;
+
+    varying vec3 vNormal;
+    varying vec3 vWorldPos;
+
+    float rand(vec2 co){ return fract(sin(dot(co.xy ,vec2(12.9898,78.233))) * 43758.5453); }
+
+    vec3 getHemisphereSample(vec3 normal, vec2 seed) {
+        float u = rand(seed);
+        float v = rand(seed + vec2(1.0, 1.0));
+        float r = sqrt(u);
+        float z = sqrt(1.0 - u); 
+        float phi = 2.0 * 3.14159265 * v;
+        vec3 p = vec3(r * cos(phi), r * sin(phi), z);
+        
+        vec3 up = abs(normal.z) < 0.999 ? vec3(0.0, 0.0, 1.0) : vec3(1.0, 0.0, 0.0);
+        vec3 tangent = normalize(cross(up, normal));
+        vec3 bitangent = cross(normal, tangent);
+        return tangent * p.x + bitangent * p.y + normal * p.z;
+    }
+
+    void main() {
+        // Reduced to 100.0 (1cm grid). A 1mm grid caused massive Moiré aliasing at a distance!
+        vec3 seedPos = floor(vWorldPos * 100.0);
+        float hash = fract(sin(dot(seedPos, vec3(12.9898, 78.233, 53.539))) * 43758.5453);
+        
+        if(fract(hash + uSeed) < 0.5) discard; 
+        
+        float isEmissive = length(uEmissive) > 0.0 ? 1.0 : 0.0;
+        if(isEmissive > 0.5) {
+            gl_FragColor = vec4(uEmissive, 1.0);
+            return;
+        }
+
+        vec3 indirectLight = vec3(0.0);
+        int RAYS = 8;
+        int STEPS = 20;
+        float STEP_SIZE = 0.8; 
+
+        for(int i = 0; i < RAYS; i++) {
+            vec3 rayDir = getHemisphereSample(normalize(vNormal), seedPos.xy + uSeed + float(i)*0.13);
+            vec3 marchPos = vWorldPos + normalize(vNormal) * 0.1;
+
+            for(int j = 0; j < STEPS; j++) {
+                marchPos += rayDir * STEP_SIZE;
+                vec3 toMarchPos = marchPos - uCameraPos;
+                float currentDist = length(toMarchPos);
+                vec3 sampleDir = toMarchPos / currentDist;
+
+                vec4 cubeND = textureCube(tCubeNormalDistRead, sampleDir);
+                float hitDist = cubeND.a;
+
+                float depthDiff = currentDist - hitDist;
+                // hitDist > 0.001 cleanly ignores the sky background!
+                // Relaxed depth tolerances so grazing rays don't glitch through walls.
+                if(hitDist > 0.001 && depthDiff > -0.2 && depthDiff < STEP_SIZE * 2.0) {
+                    vec3 hitNormal = cubeND.rgb; // Now safely in World Space!
+                    if(dot(hitNormal, rayDir) < 0.2) {
+                        vec3 hitColor = textureCube(tCubeColorRead, sampleDir).rgb;
+                        indirectLight += hitColor; 
+                        break; 
+                    }
+                }
+            }
+        }
+        
+        indirectLight /= float(RAYS);
+        
+        vec3 ambient = uColor * 0.02; 
+        vec3 bounce = uColor * indirectLight; 
+        
+        gl_FragColor = vec4(ambient + bounce, 1.0);
+    }
+`;
+
+const stochasticNormalFrag = `
+    uniform float uSeed;
+    uniform vec3 uCameraPos;
+    varying vec3 vNormal;
+    varying vec3 vWorldPos;
+    void main() {
+        vec3 seedPos = floor(vWorldPos * 100.0);
+        float hash = fract(sin(dot(seedPos, vec3(12.9898, 78.233, 53.539))) * 43758.5453);
+        
+        if(fract(hash + uSeed) < 0.5) discard;
+        
+        float dist = length(vWorldPos - uCameraPos);
+        gl_FragColor = vec4(normalize(vNormal), dist);
+    }
+`;
+
+const sceneMeshes = [];
+function createMaterials(colorHex, emissiveHex = 0x000000, emissiveIntensity = 1.0) {
+    const color = new THREE.Color(colorHex);
+    const emissive = new THREE.Color(emissiveHex).multiplyScalar(emissiveIntensity);
+    
+    return {
+        screenColor: new THREE.ShaderMaterial({
+            vertexShader: commonVert, fragmentShader: screenColorFrag,
+            uniforms: { uColor: { value: color }, uEmissive: { value: emissive } }
+        }),
+        screenNormal: new THREE.ShaderMaterial({
+            vertexShader: commonVert, fragmentShader: screenNormalFrag,
+            uniforms: { uCameraPos: { value: camera.position } }
+        }),
+        stocColor: new THREE.ShaderMaterial({
+            vertexShader: commonVert, fragmentShader: stochasticColorFrag,
+            uniforms: { 
+                uColor: { value: color }, uEmissive: { value: emissive }, uSeed: { value: 0 },
+                tCubeColorRead: { value: null }, tCubeNormalDistRead: { value: null },
+                uCameraPos: { value: camera.position }
+            },
+            side: THREE.DoubleSide
+        }),
+        stocNormal: new THREE.ShaderMaterial({
+            vertexShader: commonVert, fragmentShader: stochasticNormalFrag,
+            uniforms: { uCameraPos: { value: camera.position }, uSeed: { value: 0 } },
+            side: THREE.DoubleSide
+        })
+    };
+}
+
+function addMesh(geometry, mats, position, rotation) {
+    const mesh = new THREE.Mesh(geometry, mats.screenColor);
+    mesh.position.copy(position);
+    if(rotation) mesh.rotation.set(rotation.x, rotation.y, rotation.z);
+    mesh.userData.mats = mats;
+    scene.add(mesh);
+    sceneMeshes.push(mesh);
+}
+
+// --- SCENE CONSTRUCTION ---
+const wallGeo = new THREE.PlaneGeometry(10, 10);
+const boxWhiteMats = createMaterials(0xcccccc);
+const boxRedMats = createMaterials(0xcc2222);
+const boxGreenMats = createMaterials(0x22cc22);
+const boxBlueMats = createMaterials(0x2255cc);
+const emissiveMats = createMaterials(0x000000, 0xffffff, 10.0); 
+
+addMesh(wallGeo, boxRedMats, new THREE.Vector3(-5, 0, 0), new THREE.Vector3(0, Math.PI/2, 0));
+addMesh(wallGeo, boxGreenMats, new THREE.Vector3(5, 0, 0), new THREE.Vector3(0, -Math.PI/2, 0));
+addMesh(wallGeo, boxWhiteMats, new THREE.Vector3(0, -5, 0), new THREE.Vector3(-Math.PI/2, 0, 0));
+addMesh(wallGeo, boxWhiteMats, new THREE.Vector3(0, 5, 0), new THREE.Vector3(Math.PI/2, 0, 0));
+addMesh(wallGeo, boxWhiteMats, new THREE.Vector3(0, 0, -5), new THREE.Vector3(0, 0, 0));
+addMesh(wallGeo, boxWhiteMats, new THREE.Vector3(0, 0, 5), new THREE.Vector3(0, Math.PI, 0));
+
+const lightGeo = new THREE.PlaneGeometry(3, 3);
+addMesh(lightGeo, emissiveMats, new THREE.Vector3(0, 4.9, 0), new THREE.Vector3(Math.PI/2, 0, 0));
+
+const tallBoxGeo = new THREE.BoxGeometry(3, 6, 3);
+addMesh(tallBoxGeo, boxWhiteMats, new THREE.Vector3(-1.5, -2, -1.5), new THREE.Vector3(0, 0.3, 0));
+
+const shortBoxGeo = new THREE.BoxGeometry(3, 3, 3);
+addMesh(shortBoxGeo, boxBlueMats, new THREE.Vector3(1.5, -3.5, 1.5), new THREE.Vector3(0, -0.3, 0));
+
+// --- POST-PROCESSING SHADERS ---
+const orthoCamera = new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 1);
+const quadGeo = new THREE.PlaneGeometry(2, 2);
+
+// 1. SSGI Raymarcher
+const ssgiMat = new THREE.ShaderMaterial({
+    uniforms: {
+        tColor: { value: screenColorRT.texture },
+        tNormalDist: { value: screenNormalDistRT.texture },
+        tCubeColor: { value: null }, tCubeNormalDist: { value: null },
+        uCameraPos: { value: camera.position },
+        uInvProj: { value: camera.projectionMatrixInverse },
+        uInvView: { value: camera.matrixWorld },
+        uSeed: { value: 0 }
+    },
+    vertexShader: `varying vec2 vUv; void main() { vUv = uv; gl_Position = vec4(position, 1.0); }`,
+    fragmentShader: `
+        uniform sampler2D tColor;
+        uniform sampler2D tNormalDist;
+        uniform samplerCube tCubeColor;
+        uniform samplerCube tCubeNormalDist;
+        uniform vec3 uCameraPos;
+        uniform mat4 uInvProj;
+        uniform mat4 uInvView;
+        uniform float uSeed;
+        varying vec2 vUv;
+
+        float rand(vec2 co){ return fract(sin(dot(co.xy ,vec2(12.9898,78.233))) * 43758.5453); }
+
+        vec3 getHemisphereSample(vec3 normal, vec2 seed) {
+            float u = rand(seed);
+            float v = rand(seed + vec2(1.0, 1.0));
+            float r = sqrt(u);
+            float z = sqrt(1.0 - u);
+            float phi = 2.0 * 3.14159265 * v;
+            vec3 p = vec3(r * cos(phi), r * sin(phi), z);
+            
+            vec3 up = abs(normal.z) < 0.999 ? vec3(0.0, 0.0, 1.0) : vec3(1.0, 0.0, 0.0);
+            vec3 tangent = normalize(cross(up, normal));
+            vec3 bitangent = cross(normal, tangent);
+            return tangent * p.x + bitangent * p.y + normal * p.z;
+        }
+
+        void main() {
+            vec4 baseColorData = texture2D(tColor, vUv);
+            vec4 normalDist = texture2D(tNormalDist, vUv);
+            vec3 baseColor = baseColorData.rgb;
+            float isEmissive = baseColorData.a;
+            vec3 normal = normalDist.rgb;
+            float dist = normalDist.a;
+
+            if(dist < 0.1 || isEmissive > 0.5) {
+                gl_FragColor = vec4(baseColor, 1.0);
+                return;
+            }
+
+            vec4 ndc = vec4(vUv * 2.0 - 1.0, 1.0, 1.0);
+            vec4 viewRay = uInvProj * ndc;
+            vec3 rayDirToPixel = normalize((uInvView * vec4(viewRay.xyz, 0.0)).xyz);
+            vec3 worldPos = uCameraPos + rayDirToPixel * dist;
+
+            vec3 indirectLight = vec3(0.0);
+            int RAYS = 32;
+            int STEPS = 32;   
+            float STEP_SIZE = 0.5;
+
+            for(int i = 0; i < RAYS; i++) {
+                vec3 rayDir = getHemisphereSample(normal, vUv + uSeed + float(i)*0.13);
+                vec3 marchPos = worldPos + normal * 0.1;
+
+                for(int j = 0; j < STEPS; j++) {
+                    marchPos += rayDir * STEP_SIZE;
+                    vec3 toMarchPos = marchPos - uCameraPos;
+                    float currentDist = length(toMarchPos);
+                    vec3 sampleDir = toMarchPos / currentDist;
+
+                    vec4 cubeND = textureCube(tCubeNormalDist, sampleDir);
+                    float hitDist = cubeND.a;
+
+                    float depthDiff = currentDist - hitDist;
+                    // Robust intersection thresholds with > 0.001 to bypass empty sky space!
+                    if(hitDist > 0.001 && depthDiff > -0.2 && depthDiff < STEP_SIZE * 2.0) {
+                        vec3 hitNormal = cubeND.rgb;
+                        if(dot(hitNormal, rayDir) < 0.2) {
+                            vec3 hitColor = textureCube(tCubeColor, sampleDir).rgb;
+                            indirectLight += hitColor;
+                            break; 
+                        }
+                    }
+                }
+            }
+            
+            indirectLight /= float(RAYS);
+            
+            vec3 ambient = baseColor * 0.02;
+            vec3 bounce = baseColor * indirectLight; 
+            
+            gl_FragColor = vec4(ambient + bounce, 1.0);
+        }
+    `
+});
+const ssgiQuad = new THREE.Mesh(quadGeo, ssgiMat);
+
+// 2. Final Display (ACES Tonemapping for proper HDR rolloff)
+const displayMat = new THREE.ShaderMaterial({
+    uniforms: { tInput: { value: ssgiRT.texture } },
+    vertexShader: `varying vec2 vUv; void main() { vUv = uv; gl_Position = vec4(position, 1.0); }`,
+    fragmentShader: `
+        uniform sampler2D tInput;
+        varying vec2 vUv;
+        
+        vec3 ACESFilm(vec3 x) {
+            float a = 2.51; float b = 0.03; float c = 2.43; float d = 0.59; float e = 0.14;
+            return clamp((x*(a*x+b))/(x*(c*x+d)+e), 0.0, 1.0);
+        }
+
+        void main() {
+            vec3 color = texture2D(tInput, vUv).rgb;
+            color = ACESFilm(color);
+            color = pow(color, vec3(1.0 / 2.2));
+            gl_FragColor = vec4(color, 1.0);
+        }
+    `
+});
+const displayQuad = new THREE.Mesh(quadGeo, displayMat);
+
+// 3. Debug Cubemap Quad
+const debugMat = new THREE.ShaderMaterial({
+    uniforms: { tCube: { value: null } },
+    vertexShader: `varying vec2 vUv; void main() { vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }`,
+    fragmentShader: `
+        uniform samplerCube tCube;
+        varying vec2 vUv;
+        #define PI 3.14159265359
+        
+        vec3 ACESFilm(vec3 x) {
+            float a = 2.51; float b = 0.03; float c = 2.43; float d = 0.59; float e = 0.14;
+            return clamp((x*(a*x+b))/(x*(c*x+d)+e), 0.0, 1.0);
+        }
+
+        void main() {
+            float theta = (vUv.x * 2.0 - 1.0) * PI;
+            float phi = (vUv.y - 0.5) * PI;
+            vec3 dir = vec3(cos(phi) * sin(theta), sin(phi), cos(phi) * cos(theta));
+            
+            vec3 color = textureCube(tCube, dir).rgb;
+            color = ACESFilm(color);
+            color = pow(color, vec3(1.0 / 2.2));
+            gl_FragColor = vec4(color, 1.0);
+        }
+    `
+});
+const debugQuad = new THREE.Mesh(quadGeo, debugMat);
+const initialAspect = window.innerWidth / window.innerHeight;
+debugQuad.scale.set(0.25 / initialAspect, 0.25, 1.0); 
+debugQuad.position.set(-1.0 + (0.25 / initialAspect), -0.75, 0);
+
+const postScene = new THREE.Scene();
+postScene.add(ssgiQuad);
+
+// --- CONTROLS ---
+const blocker = document.getElementById('blocker');
+let controlsLocked = false;
+let pitch = 0, yaw = 0;
+const keys = { w: false, a: false, s: false, d: false };
+
+blocker.addEventListener('click', () => { document.body.requestPointerLock(); });
+
+document.addEventListener('pointerlockchange', () => {
+    controlsLocked = document.pointerLockElement === document.body;
+    blocker.style.display = controlsLocked ? 'none' : 'flex';
+});
+
+document.addEventListener('mousemove', (e) => {
+    if (!controlsLocked) return;
+    yaw -= e.movementX * 0.002;
+    pitch -= e.movementY * 0.002;
+    pitch = Math.max(-Math.PI/2, Math.min(Math.PI/2, pitch));
+    camera.quaternion.setFromEuler(new THREE.Euler(pitch, yaw, 0, 'YXZ'));
+});
+
+document.addEventListener('keydown', (e) => { if(keys.hasOwnProperty(e.key.toLowerCase())) keys[e.key.toLowerCase()] = true; });
+document.addEventListener('keyup', (e) => { if(keys.hasOwnProperty(e.key.toLowerCase())) keys[e.key.toLowerCase()] = false; });
+
+const direction = new THREE.Vector3();
+
+function updateControls(delta) {
+    if (!controlsLocked) return;
+    const speed = 5.0 * delta;
+    direction.set(0,0,0);
+    
+    if (keys.w) direction.z -= 1;
+    if (keys.s) direction.z += 1;
+    if (keys.a) direction.x -= 1;
+    if (keys.d) direction.x += 1;
+    
+    direction.normalize();
+    direction.applyQuaternion(camera.quaternion);
+    camera.position.addScaledVector(direction, speed);
+}
+
+// --- RENDER LOOP ---
+let lastTime = performance.now();
+let frames = 0;
+let lastFpsTime = lastTime;
+
+function applyMaterialMode(mode) {
+    sceneMeshes.forEach(m => { m.material = m.userData.mats[mode]; });
+}
+
+function animate() {
+    requestAnimationFrame(animate);
+    const now = performance.now();
+    const delta = (now - lastTime) / 1000;
+    lastTime = now;
+
+    updateControls(delta);
+    
+    // Alpha cleared to 0 ensures "Sky" has a recorded hitDist of 0.0, avoiding invisible walls!
+    renderer.setClearColor(0x000000, 0);
+
+    // 2. Render Screen Color
+    applyMaterialMode('screenColor');
+    renderer.setRenderTarget(screenColorRT);
+    renderer.clear();
+    renderer.render(scene, camera);
+
+    // 3. Render Screen Normal+Distance
+    applyMaterialMode('screenNormal');
+    renderer.setRenderTarget(screenNormalDistRT);
+    renderer.clear();
+    renderer.render(scene, camera);
+
+    // 4. Update Cube Cameras
+    const seed = Math.random();
+    writeCubeCamColor.position.copy(camera.position);
+    writeCubeCamNormalDist.position.copy(camera.position);
+    
+    sceneMeshes.forEach(m => {
+        m.userData.mats.stocColor.uniforms.uSeed.value = seed;
+        m.userData.mats.stocColor.uniforms.tCubeColorRead.value = readCubeColorRT.texture;
+        m.userData.mats.stocColor.uniforms.tCubeNormalDistRead.value = readCubeNormalDistRT.texture;
+        m.userData.mats.stocColor.uniforms.uCameraPos.value = camera.position;
+        m.userData.mats.stocNormal.uniforms.uSeed.value = seed;
+    });
+
+    applyMaterialMode('stocColor');
+    writeCubeCamColor.update(renderer, scene);
+
+    applyMaterialMode('stocNormal');
+    writeCubeCamNormalDist.update(renderer, scene);
+
+    // 5. SSGI Post Process
+    ssgiMat.uniforms.uSeed.value = seed;
+    ssgiMat.uniforms.uInvProj.value.copy(camera.projectionMatrixInverse);
+    ssgiMat.uniforms.uInvView.value.copy(camera.matrixWorld);
+    ssgiMat.uniforms.tCubeColor.value = writeCubeColorRT.texture;
+    ssgiMat.uniforms.tCubeNormalDist.value = writeCubeNormalDistRT.texture;
+    
+    postScene.remove(displayQuad, debugQuad);
+    postScene.add(ssgiQuad);
+    renderer.setRenderTarget(ssgiRT);
+    renderer.render(postScene, orthoCamera);
+
+    // 6. Display to Screen (Tonemapped)
+    displayMat.uniforms.tInput.value = ssgiRT.texture;
+    postScene.remove(ssgiQuad);
+    postScene.add(displayQuad);
+    renderer.setRenderTarget(null);
+    renderer.render(postScene, orthoCamera);
+
+    // 7. Render Debug Cubemap in Corner
+    debugMat.uniforms.tCube.value = readCubeColorRT.texture;
+    renderer.autoClear = false;
+    postScene.remove(displayQuad);
+    postScene.add(debugQuad);
+    renderer.render(postScene, orthoCamera);
+    renderer.autoClear = true;
+
+    // Ping-Pong Buffers
+    if (writeCubeColorRT === cubeColorRT_B) {
+        readCubeColorRT = cubeColorRT_B; readCubeNormalDistRT = cubeNormalDistRT_B;
+        writeCubeColorRT = cubeColorRT_A; writeCubeNormalDistRT = cubeNormalDistRT_A;
+        writeCubeCamColor = cubeCamColor_A; writeCubeCamNormalDist = cubeCamNormalDist_A;
+    } else {
+        readCubeColorRT = cubeColorRT_A; readCubeNormalDistRT = cubeNormalDistRT_A;
+        writeCubeColorRT = cubeColorRT_B; writeCubeNormalDistRT = cubeNormalDistRT_B;
+        writeCubeCamColor = cubeCamColor_B; writeCubeCamNormalDist = cubeCamNormalDist_B;
+    }
+
+    frames++;
+    if(now - lastFpsTime >= 1000) {
+        document.getElementById('fps').innerText = frames;
+        frames = 0;
+        lastFpsTime = now;
+    }
+}
+
+window.addEventListener('resize', () => {
+    const aspect = window.innerWidth / window.innerHeight;
+    camera.aspect = aspect;
+    camera.updateProjectionMatrix();
+    renderer.setSize(window.innerWidth, window.innerHeight);
+    screenColorRT.setSize(window.innerWidth, window.innerHeight);
+    screenNormalDistRT.setSize(window.innerWidth, window.innerHeight);
+    ssgiRT.setSize(window.innerWidth, window.innerHeight);
+    
+    debugQuad.scale.set(0.25 / aspect, 0.25, 1.0);
+    debugQuad.position.set(-1.0 + (0.25 / aspect), -0.75, 0);
+});
+
+animate();
+</script>
+</body>
+</html>
