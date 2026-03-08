@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Deferred Stochastic GI & Denoising</title>
+    <title>Stochastic Scene Capture Global Illumination</title>
     <style>
         body { margin: 0; overflow: hidden; background-color: #000; font-family: sans-serif; }
         canvas { display: block; width: 100vw; height: 100vh; }
@@ -14,7 +14,7 @@
         }
         #blocker {
             position: absolute; top: 0; left: 0; width: 100%; height: 100%;
-            background: rgba(0,0,0,0.5); display: flex; flex-direction: column;
+            background: rgba(0,0,0,0.1); display: flex; flex-direction: column;
             align-items: center; justify-content: center; color: white;
             cursor: pointer; z-index: 200;
         }
@@ -31,9 +31,8 @@
 </head>
 <body>
     <div id="ui">
-        <h1>Deferred GI + Reflections</h1>
+        <h1>SCGI</h1>
         <p>FPS: <span id="fps">0</span></p>
-        <p>Bilateral Denoise + Reprojection</p>
     </div>
     <div id="blocker">
         <h1>Click to Start</h1>
