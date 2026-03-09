@@ -30,8 +30,6 @@
     <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/loaders/RGBELoader.js"></script>
     <!-- lil-gui for UI Controls -->
     <script src="https://cdn.jsdelivr.net/npm/lil-gui@0.18"></script>
-    <!-- Cannon.js for Physics -->
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/cannon.js/0.6.2/cannon.min.js"></script>
 </head>
 <body>
     <div id="ui">
@@ -41,8 +39,7 @@
     </div>
     <div id="blocker">
         <h1>Click to Start</h1>
-        <p>WASD to Move | Q/E for Up/Down | Mouse to Look</p>
-        <p>Press F to spawn Physics Spheres</p>
+        <p>WASD to Move | Mouse to Look</p>
         <p>Press ESC to unlock and use Settings</p>
     </div>
 
@@ -535,39 +532,6 @@ function addMesh(geometry, mats, position, rotation, userData = {}) {
     return mesh;
 }
 
-// --- PHYSICS SETUP ---
-const world = new CANNON.World();
-world.gravity.set(0, -9.82, 0);
-world.broadphase = new CANNON.NaiveBroadphase();
-world.solver.iterations = 10;
-world.defaultContactMaterial.friction = 0.2;
-world.defaultContactMaterial.restitution = 0.8; // Bouncy
-
-const physFloor = new CANNON.Body({ mass: 0 });
-physFloor.addShape(new CANNON.Plane());
-physFloor.quaternion.setFromAxisAngle(new CANNON.Vec3(1,0,0), -Math.PI/2);
-physFloor.position.y = -5;
-world.addBody(physFloor);
-
-const physObjects = [];
-function addPhysWall(nx, ny, nz, px, py, pz) {
-    const b = new CANNON.Body({ mass: 0 }); b.addShape(new CANNON.Plane());
-    const q = new CANNON.Quaternion(); q.setFromVectors(new CANNON.Vec3(0,0,1), new CANNON.Vec3(nx,ny,nz));
-    b.quaternion.copy(q); b.position.set(px, py, pz);
-    world.addBody(b); physObjects.push(b);
-}
-addPhysWall(0, -1, 0, 0, 5, 0); // Ceiling
-addPhysWall(1, 0, 0, -5, 0, 0); // Left
-addPhysWall(-1, 0, 0, 5, 0, 0); // Right
-addPhysWall(0, 0, 1, 0, 0, -5); // Back
-addPhysWall(0, 0, -1, 0, 0, 5); // Front
-
-function addPhysBox(w, h, d, px, py, pz, ry) {
-    const b = new CANNON.Body({ mass: 0 }); b.addShape(new CANNON.Box(new CANNON.Vec3(w/2, h/2, d/2)));
-    b.position.set(px, py, pz); if(ry) b.quaternion.setFromAxisAngle(new CANNON.Vec3(0,1,0), ry);
-    world.addBody(b); physObjects.push(b);
-}
-
 // --- SCENE CONSTRUCTION ---
 const wallGeo = new THREE.PlaneGeometry(10, 10);
 const boxWhiteMats = createMaterials({color: 0xcccccc, roughness: 0.9}); 
@@ -584,14 +548,8 @@ cornellWalls.push(addMesh(wallGeo, boxWhiteMats, new THREE.Vector3(0, 0, -5), ne
 cornellWalls.push(addMesh(wallGeo, boxWhiteMats, new THREE.Vector3(0, 0, 5), new THREE.Vector3(0, Math.PI, 0)));
 
 addMesh(new THREE.BoxGeometry(3, 6, 3), boxWhiteMats, new THREE.Vector3(-1.5, -2, -1.5), new THREE.Vector3(0, 0.3, 0), { isDefault: true });
-addPhysBox(3, 6, 3, -1.5, -2, -1.5, 0.3);
-
 addMesh(new THREE.BoxGeometry(3, 3, 3), boxBlueMats, new THREE.Vector3(1.5, -3.5, 1.5), new THREE.Vector3(0, -0.3, 0), { isDefault: true });
-addPhysBox(3, 3, 3, 1.5, -3.5, 1.5, -0.3);
-
 addMesh(new THREE.SphereGeometry(1.5, 32, 32), goldMats, new THREE.Vector3(1.5, -0.5, 1.5), null, { isDefault: true });
-const bSph = new CANNON.Body({ mass: 0 }); bSph.addShape(new CANNON.Sphere(1.5));
-bSph.position.set(1.5, -0.5, 1.5); world.addBody(bSph); physObjects.push(bSph);
 
 const ceilingLightMats = createMaterials({color: 0x000000, emissive: 0xffffff, emissiveIntensity: 10.0}); 
 const movingLightMats = createMaterials({color: 0x000000, emissive: 0xff0000, emissiveIntensity: 10.0});
@@ -638,10 +596,6 @@ function loadModel(url) {
             scene.remove(currentUserModelGroup);
         }
         currentUserModelGroup = model;
-
-        // Clear default physics objects so model doesn't hit invisible boxes
-        physObjects.forEach(b => world.removeBody(b));
-        physObjects.length = 0;
 
         sceneMeshes = sceneMeshes.filter(m => {
             if(m.userData.isDefault || userModels.includes(m)) { 
@@ -712,10 +666,6 @@ function loadHDRI(url) {
         cornellWalls.forEach(w => w.visible = false);
         if(ceilingLightMesh) ceilingLightMesh.visible = false;
         params.ceilingLight = false;
-        
-        // Clear physics walls to match the open HDRI environment
-        physObjects.forEach(b => world.removeBody(b));
-        physObjects.length = 0;
         
         gui.controllersRecursive().forEach(c => c.updateDisplay());
     });
@@ -1042,39 +992,9 @@ const displayQuad = new THREE.Mesh(quadGeo, displayMat);
 
 const postScene = new THREE.Scene();
 
-// --- CONTROLS & PHYSICS SPAWNING ---
+// --- CONTROLS ---
 const blocker = document.getElementById('blocker');
-let controlsLocked = false; let pitch = 0, yaw = 0; 
-const keys = { w: false, a: false, s: false, d: false, q: false, e: false };
-
-const spawnSphereGeo = new THREE.SphereGeometry(0.5, 32, 32);
-const dynamicBodies = [];
-
-function spawnPhysicsSphere() {
-    const isGlowing = Math.random() > 0.5;
-    const colorHex = Math.floor(Math.random() * 0xffffff);
-    let mats;
-    if(isGlowing) {
-        mats = createMaterials({color: 0x000000, emissive: colorHex, emissiveIntensity: 20.0});
-    } else {
-        mats = createMaterials({color: colorHex, roughness: 0.05, metalness: 1.0});
-    }
-    
-    // Starting position just in front of camera
-    const startPos = new THREE.Vector3().copy(camera.position);
-    const dir = new THREE.Vector3(0, 0, -1).applyQuaternion(camera.quaternion);
-    startPos.addScaledVector(dir, 1.0);
-    
-    const mesh = addMesh(spawnSphereGeo, mats, startPos, null, { dynamic: true });
-    
-    const shape = new CANNON.Sphere(0.5);
-    const body = new CANNON.Body({ mass: 1, shape: shape });
-    body.position.copy(startPos);
-    body.velocity.set(dir.x * 15, dir.y * 15, dir.z * 15);
-    
-    world.addBody(body);
-    dynamicBodies.push({ mesh, body });
-}
+let controlsLocked = false; let pitch = 0, yaw = 0; const keys = { w: false, a: false, s: false, d: false };
 
 blocker.addEventListener('click', () => { document.body.requestPointerLock()?.catch(e=>{}); });
 document.addEventListener('pointerlockchange', () => {
@@ -1087,15 +1007,8 @@ document.addEventListener('mousemove', (e) => {
     pitch = Math.max(-Math.PI/2, Math.min(Math.PI/2, pitch));
     camera.quaternion.setFromEuler(new THREE.Euler(pitch, yaw, 0, 'YXZ'));
 });
-document.addEventListener('keydown', (e) => { 
-    const k = e.key.toLowerCase();
-    if(keys.hasOwnProperty(k)) keys[k] = true; 
-    if(k === 'f' && controlsLocked) spawnPhysicsSphere();
-});
-document.addEventListener('keyup', (e) => { 
-    const k = e.key.toLowerCase();
-    if(keys.hasOwnProperty(k)) keys[k] = false; 
-});
+document.addEventListener('keydown', (e) => { if(keys.hasOwnProperty(e.key.toLowerCase())) keys[e.key.toLowerCase()] = true; });
+document.addEventListener('keyup', (e) => { if(keys.hasOwnProperty(e.key.toLowerCase())) keys[e.key.toLowerCase()] = false; });
 
 const direction = new THREE.Vector3();
 function updateControls(delta) {
@@ -1104,9 +1017,6 @@ function updateControls(delta) {
     if (keys.a) direction.x -= 1; if (keys.d) direction.x += 1;
     direction.normalize(); direction.applyQuaternion(camera.quaternion);
     camera.position.addScaledVector(direction, speed);
-    
-    if (keys.e) camera.position.y += speed;
-    if (keys.q) camera.position.y -= speed;
 }
 
 // --- RENDER LOOP ---
@@ -1122,14 +1032,6 @@ function animate() {
     const now = performance.now(); const delta = (now - lastTime) / 1000; lastTime = now;
 
     updateControls(delta);
-    
-    const dt = Math.min(delta, 0.1);
-    world.step(1/60, dt, 3);
-    
-    for(let i=0; i<dynamicBodies.length; i++) {
-        dynamicBodies[i].mesh.position.copy(dynamicBodies[i].body.position);
-        dynamicBodies[i].mesh.quaternion.copy(dynamicBodies[i].body.quaternion);
-    }
     
     // --- PROBE PUSH-OFF (WALL AVOIDANCE) ---
     targetProbePos.copy(camera.position);
