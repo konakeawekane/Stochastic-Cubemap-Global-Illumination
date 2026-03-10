@@ -9,32 +9,32 @@ export function startApp() {
     const params = {
         enableGI: true, enableSSR: true, enableVolumetrics: true,
         escapeGI: true, escapeSSR: true,
-        maxRayBrightness: 10.0,
+        maxRayBrightness: 5.0,
         modelScale: 1.0,
         ceilingLight: true, movingLight: false,
         movingLightColor: [1.0, 0.2, 0.2], movingLightBrightness: 10.0,
         skyBrightness: 1.0,
-        probeGiRes: 256, probeVolumeRes: 256, probePushOff: 1.0, probeSnapSize: 0.2, probeSSR: true, probeSSRRays: 4,
-        probeStableDensity: 0.5, probeHistoryBlend: 0.82, probeHistoryDepthThreshold: 0.35, probeHistoryNormalThreshold: 0.82,
+        probeGiRes: 128, probeVolumeRes: 64, probePushOff: 1.0, probeSnapSize: 0.2, probeSSR: true, probeSSRRays: 2,
+        probeStableDensity: 0.1, probeHistoryBlend: 0.7, probeHistoryDepthThreshold: 0.35, probeHistoryNormalThreshold: 0.82,
         cubeImportanceRatio: 0.6, cubeRays: 8, cubeSteps: 16, cubeStepSize: 0.5, cubeStepGrowth: 1.15, probeGIBounces: 2, probeBounceStrength: 0.12,
-        sceneGiScale: 0.5, importanceRatio: 0.6, rays: 8, steps: 16, stepSize: 0.2, stepGrowth: 1.15, sceneGIBounces: 2, sceneBounceStrength: 0.16,
-        sceneSsrScale: 0.5, ssrRays: 8, ssrSteps: 16,
-        sceneVolumeScale: 0.5,
+        sceneGiScale: 0.5, importanceRatio: 0.6, rays: 16, steps: 16, stepSize: 0.2, stepGrowth: 1.15, sceneGIBounces: 2, sceneBounceStrength: 0.5,
+        sceneSsrScale: 0.25, ssrRays: 10, ssrSteps: 16,
+        sceneVolumeScale: 0.25,
         volumetricIntensity: 1.0,
-        volumetricViewSamples: 8, volumetricLightRays: 6,
-        volumetricCubeSamples: 8, volumetricCubeLightRays: 6,
+        volumetricViewSamples: 1, volumetricLightRays: 6,
+        volumetricCubeSamples: 1,volumetricCubeLightRays: 1,
         volumetricSteps: 12, volumetricStepSize: 0.35, volumetricStepGrowth: 1.12,
         volumetricMaxDistance: 24.0, volumetricExtinction: 1.2, volumetricAlbedo: 0.9,
-        heightFogColor: [0.72, 0.8, 1.0], heightFogDensity: 0.025, heightFogHeight: 1.5, heightFogFalloff: 0.35,
+        heightFogColor: [1.0, 1.0, 1.0], heightFogDensity: 0.1, heightFogHeight: -3.5, heightFogFalloff: 0.87,
         defaultVolumeDensity: 0.35,
         giDenoiseRadius: 3, giDenoisePasses: 2, giDenoiseStrength: 0.95, giDenoiseDepthWeight: 12.0, giDenoiseNormWeight: 5.0, giDenoiseLumaClamp: 1.2,
         ssrDenoiseRadius: 3, ssrDenoisePasses: 2, ssrDenoiseStrength: 0.88, ssrDenoiseDepthWeight: 14.0, ssrDenoiseNormWeight: 5.0, ssrDenoiseRoughWeight: 3.5, ssrDenoiseLumaClamp: 1.18,
         volumeDenoiseRadius: 4, volumeDenoisePasses: 3, volumeDenoiseStrength: 0.92, volumeDenoiseDepthWeight: 16.0, volumeDenoiseNormWeight: 2.5, volumeDenoiseLumaClamp: 1.1,
         giTemporalEnabled: true, giTemporalBlend: 0.82, giTemporalBlendLow: 0.92, giTemporalDepthThreshold: 0.5, giTemporalNormalThreshold: 0.75, giTemporalNeighborhoodClamp: 1.15,
-        ssrTemporalEnabled: true, ssrTemporalBlend: 0.76, ssrTemporalBlendLow: 0.88, ssrTemporalDepthThreshold: 0.45, ssrTemporalNormalThreshold: 0.72, ssrTemporalNeighborhoodClamp: 1.15, ssrTemporalRoughnessThreshold: 0.18,
-        volumeTemporalEnabled: true, volumeTemporalBlend: 0.84, volumeTemporalBlendLow: 0.94, volumeTemporalDepthThreshold: 0.6, volumeTemporalNormalThreshold: 0.55, volumeTemporalNeighborhoodClamp: 1.12,
-        upsampleJitter: 1.0,
-        occlusionBias: 0.35, occlusionMaxBoost: 2.0,
+        ssrTemporalEnabled: true, ssrTemporalBlend: 0.7, ssrTemporalBlendLow: 0.8, ssrTemporalDepthThreshold: 0.45, ssrTemporalNormalThreshold: 0.72, ssrTemporalNeighborhoodClamp: 1.15, ssrTemporalRoughnessThreshold: 0.18,
+        volumeTemporalEnabled: true, volumeTemporalBlend: 0.96, volumeTemporalBlendLow: 0.98, volumeTemporalDepthThreshold: 0.6, volumeTemporalNormalThreshold: 0.55, volumeTemporalNeighborhoodClamp: 1.12,
+        upsampleJitter: 0.5,
+        occlusionBias: 1.5, occlusionMaxBoost: 2.0,
         brightnessCompensationStrength: 0.0, brightnessCompensationClamp: 0.25,
         showRawGI: false, showRawVolume: false, showCubemap: false, showTimings: true
     };
@@ -98,7 +98,7 @@ export function startApp() {
     featuresFolder.add(params, 'escapeGI').name('GI Env. Escape').onChange(invalidateTemporalHistory);
     featuresFolder.add(params, 'escapeSSR').name('SSR Env. Escape').onChange(invalidateTemporalHistory);
     featuresFolder.add(params, 'maxRayBrightness', 1.0, 50.0).name('Max Ray Brightness').onChange(invalidateAllHistory);
-    featuresFolder.add(params, 'modelScale', 0.1, 10.0, 0.1).name('Model Scale').onChange(updateModelScale);
+    featuresFolder.add(params, 'modelScale', 0.1, 20.0, 0.1).name('Model Scale').onChange(updateModelScale);
 
     const uploadObj = {
         loadFile: () => {
@@ -139,9 +139,9 @@ export function startApp() {
     lightFolder.add(params, 'ceilingLight').name('Ceiling Light').onChange(v => { if(ceilingLightMesh) ceilingLightMesh.visible = v; invalidateAllHistory(); });
     lightFolder.add(params, 'movingLight').name('Moving Light').onChange(invalidateAllHistory);
     lightFolder.addColor(params, 'movingLightColor').name('Moving Color').onChange(invalidateAllHistory);
-    lightFolder.add(params, 'movingLightBrightness', 0.1, 20.0).name('Moving Brightness').onChange(invalidateAllHistory);
+    lightFolder.add(params, 'movingLightBrightness', 0.1, 40.0).name('Moving Brightness').onChange(invalidateAllHistory);
 
-    const gatherFolder = gui.addFolder('Scene GI');
+    const gatherFolder = gui.addFolder('Screen GI');
     gatherFolder.add(params, 'sceneGiScale', [0.25, 0.5, 0.75, 1.0]).name('Resolution').onChange(resizeRenderTargets);
     gatherFolder.add(params, 'importanceRatio', 0.0, 0.9, 0.05).name('Importance Rays %').onChange(invalidateTemporalHistory);
     gatherFolder.add(params, 'rays', 1, 64, 1).onChange(invalidateTemporalHistory);
@@ -151,18 +151,18 @@ export function startApp() {
     gatherFolder.add(params, 'sceneGIBounces', 1, 8, 1).name('Bounces').onChange(invalidateTemporalHistory);
     gatherFolder.add(params, 'sceneBounceStrength', 0.02, 0.5, 0.01).name('Bounce Strength').onChange(invalidateTemporalHistory);
 
-    const ssrFolder = gui.addFolder('Scene SSR');
+    const ssrFolder = gui.addFolder('Screen SSR');
     ssrFolder.add(params, 'sceneSsrScale', [0.25, 0.5, 0.75, 1.0]).name('Resolution').onChange(resizeRenderTargets);
     ssrFolder.add(params, 'ssrRays', 1, 64, 1).name('Rays').onChange(invalidateTemporalHistory);
     ssrFolder.add(params, 'ssrSteps', 1, 64, 1).name('Steps').onChange(invalidateTemporalHistory);
 
     const volumetricFolder = gui.addFolder('Volumetrics');
-    volumetricFolder.add(params, 'sceneVolumeScale', [0.25, 0.5, 0.75, 1.0]).name('Resolution').onChange(resizeRenderTargets);
+    volumetricFolder.add(params, 'sceneVolumeScale', [0.125, 0.25, 0.5, 0.75, 1.0]).name('Resolution').onChange(resizeRenderTargets);
     volumetricFolder.add(params, 'volumetricIntensity', 0.0, 4.0, 0.05).name('Intensity');
     volumetricFolder.add(params, 'volumetricViewSamples', 1, 24, 1).name('Screen Samples').onChange(invalidateTemporalHistory);
-    volumetricFolder.add(params, 'volumetricLightRays', 1, 16, 1).name('Gather Rays').onChange(invalidateTemporalHistory);
+    volumetricFolder.add(params, 'volumetricLightRays', 1, 16, 1).name('Sample Rays').onChange(invalidateTemporalHistory);
     volumetricFolder.add(params, 'volumetricCubeSamples', 1, 24, 1).name('Cube Samples').onChange(invalidateProbeSampling);
-    volumetricFolder.add(params, 'volumetricCubeLightRays', 1, 16, 1).name('Cube Rays').onChange(invalidateProbeSampling);
+    volumetricFolder.add(params, 'volumetricCubeLightRays', 1, 16, 1).name('Cube Sample Rays').onChange(invalidateProbeSampling);
     volumetricFolder.add(params, 'volumetricSteps', 1, 32, 1).name('Trace Steps').onChange(invalidateAllHistory);
     volumetricFolder.add(params, 'volumetricStepSize', 0.05, 1.5, 0.05).name('Step Size').onChange(invalidateAllHistory);
     volumetricFolder.add(params, 'volumetricStepGrowth', 1.0, 1.5, 0.01).name('Step Growth').onChange(invalidateAllHistory);
@@ -178,42 +178,42 @@ export function startApp() {
     fogFolder.add(params, 'heightFogFalloff', 0.0, 2.0, 0.01).name('Falloff').onChange(invalidateAllHistory);
 
     const probeFolder = gui.addFolder('Probe Lighting');
-    probeFolder.add(params, 'probeGiRes', [128, 256, 512, 1024]).name('GI Resolution').onChange(rebuildCubemaps);
-    probeFolder.add(params, 'probeVolumeRes', [64, 128, 256, 512]).name('Volume Resolution').onChange(rebuildCubemaps);
+    probeFolder.add(params, 'probeGiRes', [64, 128, 256, 512, 1024]).name('GI Resolution').onChange(rebuildCubemaps);
+    probeFolder.add(params, 'probeVolumeRes', [32, 64, 128, 256, 512]).name('Volume Resolution').onChange(rebuildCubemaps);
     probeFolder.add(params, 'probePushOff', 0.0, 3.0).name('Wall Avoidance (m)').onChange(invalidateProbeSampling);
-    probeFolder.add(params, 'probeSnapSize', 0.0, 1.0, 0.01).name('Snap Size').onChange(invalidateProbeSampling);
-    probeFolder.add(params, 'probeSSR').name('Probe SSR').onChange(invalidateProbeSampling);
-    probeFolder.add(params, 'probeSSRRays', 1, 16, 1).name('Probe SSR Rays').onChange(invalidateProbeSampling);
+    probeFolder.add(params, 'probeSnapSize', 0.0, 1.0, 0.01).name('Grid Snap Size').onChange(invalidateProbeSampling);
+    probeFolder.add(params, 'probeSSR').name('Probe Reflection').onChange(invalidateProbeSampling);
+    probeFolder.add(params, 'probeSSRRays', 1, 16, 1).name('Reflection Rays').onChange(invalidateProbeSampling);
+    probeFolder.add(params, 'cubeRays', 1, 64, 1).name('GI Rays').onChange(invalidateProbeSampling);
     probeFolder.add(params, 'cubeImportanceRatio', 0.0, 0.9, 0.05).name('Importance %').onChange(invalidateProbeSampling);
-    probeFolder.add(params, 'cubeRays', 1, 64, 1).name('Rays').onChange(invalidateProbeSampling);
     probeFolder.add(params, 'cubeSteps', 1, 64, 1).name('Steps').onChange(invalidateProbeSampling);
     probeFolder.add(params, 'cubeStepSize', 0.05, 1.0).name('Step Size').onChange(invalidateProbeSampling);
     probeFolder.add(params, 'cubeStepGrowth', 1.0, 1.5).name('Step Growth').onChange(invalidateProbeSampling);
-    probeFolder.add(params, 'probeGIBounces', 1, 8, 1).name('Bounces').onChange(invalidateProbeSampling);
+    probeFolder.add(params, 'probeGIBounces', 1, 8, 1).name('Ray Bounces').onChange(invalidateProbeSampling);
     probeFolder.add(params, 'probeBounceStrength', 0.02, 0.5, 0.01).name('Bounce Strength').onChange(invalidateProbeSampling);
-    probeFolder.add(params, 'probeStableDensity', 0.1, 1.0, 0.05).name('Stable Density').onChange(invalidateProbeSampling);
-    probeFolder.add(params, 'probeHistoryBlend', 0.0, 0.98, 0.01).name('History Blend').onChange(invalidateProbeSampling);
+    probeFolder.add(params, 'probeStableDensity', 0.1, 1.0, 0.05).name('Stochastic distribution').onChange(invalidateProbeSampling);
+    probeFolder.add(params, 'probeHistoryBlend', 0.0, 1.0, 0.01).name('History Blend').onChange(invalidateProbeSampling);
     probeFolder.add(params, 'probeHistoryDepthThreshold', 0.05, 2.0, 0.01).name('Hist. Depth').onChange(invalidateProbeSampling);
     probeFolder.add(params, 'probeHistoryNormalThreshold', 0.0, 1.0, 0.01).name('Hist. Normal').onChange(invalidateProbeSampling);
 
-    const stabilityFolder = gui.addFolder('Stability & Sampling');
-    stabilityFolder.add(params, 'occlusionBias', 0.0, 2.0, 0.01).name('Occ. Bias').onChange(invalidateProbeSampling);
-    stabilityFolder.add(params, 'occlusionMaxBoost', 1.0, 4.0, 0.05).name('Occ. Max Boost').onChange(invalidateProbeSampling);
-    stabilityFolder.add(params, 'brightnessCompensationStrength', 0.0, 1.0, 0.01).name('Brightness Comp').onChange(invalidateProbeSampling);
-    stabilityFolder.add(params, 'brightnessCompensationClamp', 0.0, 1.0, 0.01).name('Comp Clamp').onChange(invalidateProbeSampling);
+    const stabilityFolder = gui.addFolder('Stability & Correction');
+    stabilityFolder.add(params, 'occlusionBias', 0.0, 3.0, 0.01).name('Occlusion Bias').onChange(invalidateProbeSampling);
+    stabilityFolder.add(params, 'occlusionMaxBoost', 1.0, 5.0, 0.05).name('Occ. Max Boost').onChange(invalidateProbeSampling);
+    stabilityFolder.add(params, 'brightnessCompensationStrength', 0.0, 1.0, 0.01).name('Brightness Hold').onChange(invalidateProbeSampling);
+    stabilityFolder.add(params, 'brightnessCompensationClamp', 0.0, 1.0, 0.01).name('Hold Clamp').onChange(invalidateProbeSampling);
     stabilityFolder.add(params, 'upsampleJitter', 0.0, 3.0).name('Filter Jitter');
 
     const giDenoiseFolder = gui.addFolder('GI Denoise');
-    giDenoiseFolder.add(params, 'giDenoiseRadius', 0, 8, 1).name('Radius');
-    giDenoiseFolder.add(params, 'giDenoisePasses', 0, 4, 1).name('Passes');
+    giDenoiseFolder.add(params, 'giDenoiseRadius', 0, 16, 1).name('Filter Radius');
+    giDenoiseFolder.add(params, 'giDenoisePasses', 0, 4, 1).name('Filter Passes');
     giDenoiseFolder.add(params, 'giDenoiseStrength', 0.0, 1.0, 0.01).name('Strength');
     giDenoiseFolder.add(params, 'giDenoiseDepthWeight', 0.1, 50.0).name('Depth Weight');
     giDenoiseFolder.add(params, 'giDenoiseNormWeight', 0.1, 10.0).name('Normal Weight');
     giDenoiseFolder.add(params, 'giDenoiseLumaClamp', 1.0, 2.0, 0.01).name('Luma Clamp');
 
     const ssrDenoiseFolder = gui.addFolder('SSR Denoise');
-    ssrDenoiseFolder.add(params, 'ssrDenoiseRadius', 0, 8, 1).name('Radius');
-    ssrDenoiseFolder.add(params, 'ssrDenoisePasses', 0, 4, 1).name('Passes');
+    ssrDenoiseFolder.add(params, 'ssrDenoiseRadius', 0, 16, 1).name('Filter Radius');
+    ssrDenoiseFolder.add(params, 'ssrDenoisePasses', 0, 4, 1).name('Filter Passes');
     ssrDenoiseFolder.add(params, 'ssrDenoiseStrength', 0.0, 1.0, 0.01).name('Strength');
     ssrDenoiseFolder.add(params, 'ssrDenoiseDepthWeight', 0.1, 50.0).name('Depth Weight');
     ssrDenoiseFolder.add(params, 'ssrDenoiseNormWeight', 0.1, 10.0).name('Normal Weight');
@@ -221,8 +221,8 @@ export function startApp() {
     ssrDenoiseFolder.add(params, 'ssrDenoiseLumaClamp', 1.0, 2.0, 0.01).name('Luma Clamp');
 
     const volumeDenoiseFolder = gui.addFolder('Volume Denoise');
-    volumeDenoiseFolder.add(params, 'volumeDenoiseRadius', 0, 8, 1).name('Radius');
-    volumeDenoiseFolder.add(params, 'volumeDenoisePasses', 0, 4, 1).name('Passes');
+    volumeDenoiseFolder.add(params, 'volumeDenoiseRadius', 0, 16, 1).name('Filte Radius');
+    volumeDenoiseFolder.add(params, 'volumeDenoisePasses', 0, 4, 1).name('Filter Passes');
     volumeDenoiseFolder.add(params, 'volumeDenoiseStrength', 0.0, 1.0, 0.01).name('Strength');
     volumeDenoiseFolder.add(params, 'volumeDenoiseDepthWeight', 0.1, 50.0).name('Depth Weight');
     volumeDenoiseFolder.add(params, 'volumeDenoiseNormWeight', 0.1, 10.0).name('Normal Weight');
@@ -230,16 +230,16 @@ export function startApp() {
 
     const giTemporalFolder = gui.addFolder('GI TAA');
     giTemporalFolder.add(params, 'giTemporalEnabled').name('Enabled');
-    giTemporalFolder.add(params, 'giTemporalBlend', 0.0, 0.98, 0.01).name('History');
-    giTemporalFolder.add(params, 'giTemporalBlendLow', 0.0, 0.98, 0.01).name('Low Light');
+    giTemporalFolder.add(params, 'giTemporalBlend', 0.0, 1.0, 0.01).name('History');
+    giTemporalFolder.add(params, 'giTemporalBlendLow', 0.0, 1.0, 0.01).name('Low Light Hist.');
     giTemporalFolder.add(params, 'giTemporalDepthThreshold', 0.01, 2.0, 0.01).name('Depth Threshold');
     giTemporalFolder.add(params, 'giTemporalNormalThreshold', 0.0, 1.0, 0.01).name('Normal Threshold');
     giTemporalFolder.add(params, 'giTemporalNeighborhoodClamp', 1.0, 2.0, 0.01).name('Clamp');
 
     const ssrTemporalFolder = gui.addFolder('SSR TAA');
     ssrTemporalFolder.add(params, 'ssrTemporalEnabled').name('Enabled');
-    ssrTemporalFolder.add(params, 'ssrTemporalBlend', 0.0, 0.98, 0.01).name('History');
-    ssrTemporalFolder.add(params, 'ssrTemporalBlendLow', 0.0, 0.98, 0.01).name('Low Light');
+    ssrTemporalFolder.add(params, 'ssrTemporalBlend', 0.0, 1.0, 0.01).name('History');
+    ssrTemporalFolder.add(params, 'ssrTemporalBlendLow', 0.0, 1.0, 0.01).name('Low Light Hist.');
     ssrTemporalFolder.add(params, 'ssrTemporalDepthThreshold', 0.01, 2.0, 0.01).name('Depth Threshold');
     ssrTemporalFolder.add(params, 'ssrTemporalNormalThreshold', 0.0, 1.0, 0.01).name('Normal Threshold');
     ssrTemporalFolder.add(params, 'ssrTemporalNeighborhoodClamp', 1.0, 2.0, 0.01).name('Clamp');
@@ -247,15 +247,15 @@ export function startApp() {
 
     const volumeTemporalFolder = gui.addFolder('Volume TAA');
     volumeTemporalFolder.add(params, 'volumeTemporalEnabled').name('Enabled');
-    volumeTemporalFolder.add(params, 'volumeTemporalBlend', 0.0, 0.98, 0.01).name('History');
-    volumeTemporalFolder.add(params, 'volumeTemporalBlendLow', 0.0, 0.98, 0.01).name('Low Light');
+    volumeTemporalFolder.add(params, 'volumeTemporalBlend', 0.0, 1.0, 0.01).name('History');
+    volumeTemporalFolder.add(params, 'volumeTemporalBlendLow', 0.0, 1.0, 0.01).name('Low Light Hist.');
     volumeTemporalFolder.add(params, 'volumeTemporalDepthThreshold', 0.01, 2.0, 0.01).name('Depth Threshold');
     volumeTemporalFolder.add(params, 'volumeTemporalNormalThreshold', 0.0, 1.0, 0.01).name('Normal Threshold');
     volumeTemporalFolder.add(params, 'volumeTemporalNeighborhoodClamp', 1.0, 2.0, 0.01).name('Clamp');
 
     const debugFolder = gui.addFolder('Debug');
-    debugFolder.add(params, 'showRawGI').name('Show Raw GI Buffer');
-    debugFolder.add(params, 'showRawVolume').name('Show Raw Volume Buffer');
+    debugFolder.add(params, 'showRawGI').name('Show GI Only');
+    debugFolder.add(params, 'showRawVolume').name('Show Volumetric Only');
     debugFolder.add(params, 'showCubemap').name('Show Probe Cubemap');
     debugFolder.add(params, 'showTimings').name('Show Timings');
 
@@ -1031,7 +1031,7 @@ export function startApp() {
             probeFrameCount = 0;
             volumeFrameCount = 0;
             previousProbePos.copy(currentProbePos);
-            volumeProbeHistoryValid = false;
+            volumeProbeHistoryValid = true;
             probeHistoryValid = false;
             temporalHistoryValid = false;
         });
@@ -1077,7 +1077,7 @@ export function startApp() {
             probeFrameCount = 0;
             volumeFrameCount = 0;
             previousProbePos.copy(currentProbePos);
-            volumeProbeHistoryValid = false;
+            volumeProbeHistoryValid = true;
             probeHistoryValid = false;
             temporalHistoryValid = false;
         });
@@ -1633,7 +1633,8 @@ export function startApp() {
     
                 vec4 ndc = vec4(vUv * 2.0 - 1.0, 1.0, 1.0);
                 vec4 viewRay = uInvProj * ndc;
-                vec3 rayDir = normalize((uInvView * vec4(viewRay.xyz, 0.0)).xyz);
+                vec3 rayDir = normalize(viewRay.xyz);
+                //normalize((uInvView * vec4(viewRay.xyz, 0.0)).xyz);
                 float baseSeed = IGN(gl_FragCoord.xy + mod(uSeed * 1000.0, 100.0));
                 vec3 volumeLight = integrateVolumetricSegment(uCameraPos, rayDir, maxDist, baseSeed);
                 gl_FragColor = vec4(volumeLight, maxDist);
@@ -1910,7 +1911,7 @@ export function startApp() {
         const probeHistoryThreshold = Math.max(0.02, params.cubeStepSize * 0.35);
         const volumeProbeHistoryThreshold = Math.max(0.02, params.volumetricStepSize * 0.35);
         probeHistoryValid = temporalHistoryValid && probeFrameCount > 0 && probeMotionAmount <= probeHistoryThreshold;
-        volumeProbeHistoryValid = params.enableVolumetrics && volumeFrameCount > 0 && probeHistoryValid && probeMotionAmount <= volumeProbeHistoryThreshold;
+        volumeProbeHistoryValid = true;
         if (params.brightnessCompensationStrength > 0.0 && probeHistoryValid) {
             const compensationDelta = THREE.MathUtils.clamp((params.probeHistoryBlend - 0.5) * params.brightnessCompensationStrength, -params.brightnessCompensationClamp, params.brightnessCompensationClamp);
             brightnessCompensation = 1.0 + compensationDelta;
